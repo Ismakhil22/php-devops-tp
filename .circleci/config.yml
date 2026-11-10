@@ -238,7 +238,15 @@ jobs:
             command: ./phploc src/
         - run:
             name: Exécuter phpmetrics
-            command: ~/.composer/vendor/bin/phpmetrics --report-html=report src/
+            command: |
+              # Récupère automatiquement le bon chemin du dossier bin de Composer
+              GLOBAL_BIN=$(composer global config bin-dir --absolute)
+              $GLOBAL_BIN/phpmetrics --report-html=report src/
+        - store_artifacts:
+            path: report
+            destination: phpmetrics-report
+
+            
         
     quality_code:
       docker:
