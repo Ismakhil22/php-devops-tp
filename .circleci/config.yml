@@ -223,56 +223,56 @@ jobs:
             EOF
 
   evaluate_code:
-      docker:
-        - image: cimg/php:8.2
-      steps:
-        - checkout
-        - run:
-            name: Installer phploc et phpmetrics
-            command: |
-              wget https://phar.phpunit.de/phploc.phar -O phploc
-              chmod +x phploc
-              composer global require phpmetrics/phpmetrics
-        - run:
-            name: Exécuter phploc
-            command: ./phploc src/
-        - run:
-            name: Exécuter phpmetrics
-            command: ~/.composer/vendor/bin/phpmetrics --report-html=report src/
+    docker:
+      - image: cimg/php:8.2
+    steps:
+      - checkout
+      - run:
+          name: Installer phploc et phpmetrics
+          command: |
+            wget https://phar.phpunit.de/phploc.phar -O phploc
+            chmod +x phploc
+            composer global require phpmetrics/phpmetrics
+      - run:
+          name: Exécuter phploc
+          command: ./phploc src/
+      - run:
+          name: Exécuter phpmetrics
+          command: ~/.composer/vendor/bin/phpmetrics --report-html=report src/
         
-    quality_code:
-      docker:
-        - image: cimg/php:8.2
-      steps:
-        - checkout
-        - run:
-            name: Installer phpmd et php-doc-check
-            command: |
-              wget -c https://phpmd.org/static/latest/phpmd.phar -O phpmd
-              chmod +x phpmd
-              composer require --dev niels-de-blaauw/php-doc-check
-        - run:
-            name: Exécuter phpmd
-            command: ./phpmd src/ text cleancode,codesize,naming
-        - run:
-            name: Exécuter php-doc-check
-            command: ./vendor/bin/php-doc-check -d src/
+  quality_code:
+    docker:
+      - image: cimg/php:8.2
+    steps:
+      - checkout
+      - run:
+          name: Installer phpmd et php-doc-check
+          command: |
+            wget -c https://phpmd.org/static/latest/phpmd.phar -O phpmd
+            chmod +x phpmd
+            composer require --dev niels-de-blaauw/php-doc-check
+      - run:
+          name: Exécuter phpmd
+          command: ./phpmd src/ text cleancode,codesize,naming
+      - run:
+          name: Exécuter php-doc-check
+          command: ./vendor/bin/php-doc-check -d src/
 
   deploy-ssh-production:
     docker:
         - image: cimg/base:current
-      steps:
-        - add_ssh_keys:
-            fingerprints:
-              - "XX:XX:XX:XX:XX:XX:XX:XX:XX" # à remplir
-        - run:
-            name: Déployer l'image Docker sur EC2
-            command: |
-              ssh -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-              "docker pull ghcr.io/$GHCR_USERNAME/php-devops-tp:latest && \
-              docker stop app-php || true && \
-              docker rm app-php || true && \
-              docker run -d -p 80:80 --name app-php ghcr.io/$GHCR_USERNAME/php-devops-tp:latest"
+    steps:
+      - add_ssh_keys:
+          fingerprints:
+            - "XX:XX:XX:XX:XX:XX:XX:XX:XX" # à remplir
+      - run:
+          name: Déployer l'image Docker sur EC2
+          command: |
+            ssh -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
+            "docker pull ghcr.io/$GHCR_USERNAME/php-devops-tp:latest && \
+            docker stop app-php || true && \
+            docker rm app-php || true && \
+            docker run -d -p 80:80 --name app-php ghcr.io/$GHCR_USERNAME/php-devops-tp:latest"
 # It's up to you :) 
 
 
