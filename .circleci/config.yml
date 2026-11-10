@@ -112,6 +112,9 @@ jobs:
     steps:
       - *attach_workspace
       - run:
+          name: Install PHP_CodeSniffer and PHPCompatibility
+          command: composer require --dev "squizlabs/php_codesniffer=*" "phpcompatibility/php-compatibility=*"
+      - run:
           name: Run PHP_CodeSniffer with Custom Ruleset in the project root
           command: |
             ./vendor/bin/phpcs --standard=phpcs.xml --report-file=phpcs-report.txt --report=checkstyle --extensions=php --ignore=vendor/ .
@@ -157,9 +160,6 @@ jobs:
               echo "export SKIP_PHPUNIT=true" >> $BASH_ENV
               circleci step halt
             fi
-      - run:
-          name: Install PHPUnit
-          command: composer require --dev phpunit/phpunit
       - run:
           name: Run PHPUnit
           command: ./vendor/bin/phpunit --testsuite=Unit
