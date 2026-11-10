@@ -1,5 +1,5 @@
 FROM php:8.2-apache
-LABEL maintainer="YOUR NAME <YOUR EMAIL>"
+LABEL maintainer="Clement Menou <clement.menou@etu.unice.fr>"
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -65,7 +65,7 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
 
 # Install Infisical cli
 RUN apt-get install -y bash curl \
-    && curl -1sLf 'https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh' | bash \
+    && curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | bash \
     && apt-get update \
     && apt-get install -y infisical
 
@@ -94,6 +94,11 @@ RUN chown -R www-data:www-data /var/www/html
 
 # Define the working directory
 WORKDIR /var/www/html
+
+RUN composer install --no-dev \
+    --no-interaction \
+    --prefer-dist \
+    --optimize-autoloader
 
 # Exposez le port 80
 EXPOSE 80
