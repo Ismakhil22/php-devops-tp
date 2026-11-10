@@ -149,24 +149,19 @@ jobs:
 
 
   test-phpunit:
-    executor: php-executor
-    steps:
-      - *attach_workspace
-      - run:
-          name: Check if PHPUnit tests are present, otherwise skip the job
-          command: |
-            if [ ! -f "phpunit.xml" ]; then
-              echo "No PHPUnit tests found, skipping job."
-              echo "export SKIP_PHPUNIT=true" >> $BASH_ENV
-              circleci step halt
-            fi
-      - run:
-          name: Install PHPUnit
-          command: composer require --dev phpunit/phpunit
-      - run:
-          name: Run PHPUnit
-          command: ./vendor/bin/phpunit --testsuite=Unit
-
+      executor: php-executor
+      steps:
+        - *attach_workspace
+        - run:
+            name: Install Infisical CLI
+            command: |
+              curl -1sLf 'https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh' | sudo -E bash
+              sudo apt-get update && sudo apt-get install -y infisical
+        - run:
+            name: Run PHPUnit with Infisical Secrets
+            command: |
+              infisical login --method=universal-auth --client-id=$INFISICAL_UNIVERSAL_AUTH_CLIENT_ID --client-secret=$INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET
+              infisical run --env=dev --projectId=c6a5c011-fd71-4229-b297-9782e0a67445 -- ./vendor/bin/phpunit --testsuite=Unit
 
   build-docker-image:
     executor: builder-executor

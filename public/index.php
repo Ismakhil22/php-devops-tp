@@ -4,6 +4,8 @@ use App\ImageCreator;
 
 require __DIR__ . '/../vendor/autoload.php';
 
+$appSecret = getenv('APP_SECRET') ?: ($_ENV['APP_SECRET'] ?? null);
+
 $dotenv = Dotenv\Dotenv::createImmutable(dirname(__DIR__));
 $dotenv->safeLoad();
 
