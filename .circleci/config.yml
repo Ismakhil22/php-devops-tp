@@ -160,7 +160,7 @@ jobs:
         - run:
             name: Run PHPUnit with Infisical Secrets
             command: |
-              infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET"
+              export INFISICAL_TOKEN=$(infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --silent --plain)
               infisical run --env=dev --projectId=c6a5c011-fd71-4229-b297-9782e0a67445 -- ./vendor/bin/phpunit --testsuite=Unit
 
   build-docker-image:
