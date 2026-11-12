@@ -221,22 +221,30 @@ jobs:
             EOF
 
   evaluate_code:
-    docker:
-      - image: cimg/php:8.2
-    steps:
-      - checkout
-      - run:
-          name: Installer phploc et phpmetrics
-          command: |
-            wget https://phar.phpunit.de/phploc.phar -O phploc
-            chmod +x phploc
-            composer global require phpmetrics/phpmetrics
-      - run:
-          name: Exécuter phploc
-          command: ./phploc src/
-      - run:
-          name: Exécuter phpmetrics
-          command: ~/.composer/vendor/bin/phpmetrics --report-html=report src/
+      docker:
+        - image: cimg/php:8.2
+      steps:
+        - checkout
+        - run:
+            name: Installer phploc et phpmetrics
+            command: |
+              wget https://phar.phpunit.de/phploc.phar -O phploc
+              chmod +x phploc
+              composer global require phpmetrics/phpmetrics
+        - run:
+            name: Exécuter phploc
+            command: ./phploc src/
+        - run:
+            name: Exécuter phpmetrics
+            command: |
+              # Récupère automatiquement le bon chemin du dossier bin de Composer
+              GLOBAL_BIN=$(composer global config bin-dir --absolute)
+              $GLOBAL_BIN/phpmetrics --report-html=report src/
+        - store_artifacts:
+            path: report
+            destination: phpmetrics-report
+
+            
         
   quality_code:
     docker:
