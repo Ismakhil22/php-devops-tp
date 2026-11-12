@@ -181,6 +181,8 @@ jobs:
             # Sanitize the repository name and branch name
             REPOSITORY=$(echo "ghcr.io/$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME" | tr '[:upper:]' '[:lower:]' | tr -d '_')
             TAG=$(echo $CIRCLE_BRANCH | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr -cd '[:alnum:]._-' | cut -c 1-128)
+            # Immutable tag used for deployments
+            SHA_TAG=${CIRCLE_SHA1:0:7}
 
             # Login to GHCR
             echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
@@ -189,6 +191,7 @@ jobs:
             docker build \
             -f Docker/Dockerfile \
             -t $REPOSITORY:$TAG \
+            -t $REPOSITORY:$SHA_TAG \
             --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
             --build-arg TAG="${TAG}" \
             --build-arg GIT_COMMIT=$(git rev-parse -q --verify HEAD) \
@@ -200,6 +203,13 @@ jobs:
 
             # Push the Docker image
             docker push $REPOSITORY:$TAG
+            docker push $REPOSITORY:$SHA_TAG
+
+            # "latest" only on main/master
+            if [ "$CIRCLE_BRANCH" = "main" ] || [ "$CIRCLE_BRANCH" = "master" ]; then
+              docker tag $REPOSITORY:$SHA_TAG $REPOSITORY:latest
+              docker push $REPOSITORY:latest
+            fi
 
 
   deploy-ssh-staging:
@@ -212,12 +222,16 @@ jobs:
           name: Deploy to AWS
           command: |
             set -x
-            ssh -o StrictHostKeyChecking=no $STAGING_SSH_USER@$STAGING_SSH_HOST \<< EOF
+            ssh "$STAGING_SSH_USER@$STAGING_SSH_HOST" \
+              "DEPLOY_DIR='$STAGING_DEPLOY_DIRECTORY' BRANCH='$CIRCLE_BRANCH' bash -se" <<'EOF'
+            set -euo pipefail
+
             PHP_FPM_VERSION=$(php -v | head -n 1 | cut -d ' ' -f 2 | cut -d '.' -f 1-2)
-            cd $STAGING_DEPLOY_DIRECTORY
-            git pull origin $CIRCLE_BRANCH
+
+            cd "$DEPLOY_DIR"
+            git pull origin "$BRANCH"
             composer install --optimize-autoloader --no-interaction --prefer-dist
-            (flock -w 10 9 || exit 1; sudo -S service php${PHP_FPM_VERSION}-fpm restart ) 9>/tmp/fpm.lock
+            sudo -n service "php${PHP_FPM_VERSION}-fpm" restart
             EOF
 
   evaluate_code:
@@ -265,21 +279,71 @@ jobs:
           command: ./vendor/bin/php-doc-check -d src/
 
   deploy-ssh-production:
-    docker:
-        - image: cimg/base:current
+    executor: simple-executor
     steps:
       - add_ssh_keys:
           fingerprints:
-            - "XX:XX:XX:XX:XX:XX:XX:XX:XX" # à remplir
+            - "SHA256:ct7HC/4ij7x7LLT1Qc6NxLIOQqSFyeqB75UV4+NJEfM"
       - run:
-          name: Déployer l'image Docker sur EC2
+          name: Trust the EC2 host key (no StrictHostKeyChecking=no)
           command: |
-            ssh -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "docker pull ghcr.io/$GHCR_USERNAME/php-devops-tp:latest && \
-            docker stop app-php || true && \
-            docker rm app-php || true && \
-            docker run -d -p 80:80 --name app-php ghcr.io/$GHCR_USERNAME/php-devops-tp:latest"
-# It's up to you :) 
+            mkdir -p ~/.ssh
+            # EC2_HOST_KEY = output of `ssh-keyscan -t ed25519 <ip>`, fetched once
+            # from a trusted channel and stored in CircleCI
+            echo "$EC2_HOST_KEY" >> ~/.ssh/known_hosts
+            chmod 644 ~/.ssh/known_hosts
+      - run:
+          name: Login to GHCR on the EC2 (read:packages PAT, via stdin)
+          command: |
+            echo "$GHCR_READ_PAT" | ssh $EC2_USERNAME@$EC2_HOST \
+              "docker login ghcr.io -u $GHCR_USERNAME --password-stdin"
+      - run:
+          name: Deploy the Docker image
+          command: |
+            REPOSITORY=$(echo "ghcr.io/$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME" | tr '[:upper:]' '[:lower:]' | tr -d '_')
+            IMAGE="$REPOSITORY:${CIRCLE_SHA1:0:7}"
+
+            ssh $EC2_USERNAME@$EC2_HOST "IMAGE=$IMAGE bash -s" <<'EOF'
+            set -euo pipefail
+            docker pull "$IMAGE"
+
+            # Remember the current image for rollback
+            PREVIOUS=$(docker inspect -f '{{.Config.Image}}' app-php 2>/dev/null || true)
+
+            docker stop app-php 2>/dev/null || true
+            docker rm app-php 2>/dev/null || true
+
+            docker run -d --name app-php \
+            -p 80:80 \
+            --restart unless-stopped \
+            --memory 512m --cpus 1 \
+            --read-only \
+            --tmpfs /tmp \
+            --tmpfs /var/run/apache2 \
+            --tmpfs /var/lock/apache2 \
+            --tmpfs /var/log/apache2 \
+            -v /opt/app/database:/var/www/html/database \
+            --security-opt no-new-privileges \
+            --env-file /opt/app/.env \
+            "$IMAGE"
+
+            # Healthcheck
+            for i in $(seq 1 10); do
+              if curl -fsS http://localhost/ >/dev/null; then
+                echo "Deployment OK"
+                docker image prune -f
+                exit 0
+              fi
+              sleep 3
+            done
+
+            echo "Healthcheck failed, rolling back"
+            docker rm -f app-php
+            if [ -n "$PREVIOUS" ]; then
+              docker run -d --name app-php -p 80:80 --restart unless-stopped "$PREVIOUS"
+            fi
+            exit 1
+            EOF
 
 
 workflows:
@@ -302,34 +366,14 @@ workflows:
       - quality_code:
           requires:
             - build-setup
-      - hold:
-          type: approval
-          filters:
-            branches:
-              only:
-                - main
-                - master
-                - /^release\/.*/
-      #- deploy-ssh-production:
-          #requires:
-              #- hold
-          #filters:
-            #branches:
-              #only:
-                #- main
-                #- master
-      - deploy-ssh-staging:
-          requires:
-            - hold
-          filters:
-            branches:
-              only:
-                - /^release\/.*/
 
-
-  container_workflow:
-    jobs:
+      # Docker image: built once all checks pass, pushed to GHCR
       - build-docker-image:
+          requires:
+            - lint-phpcs
+            - security-check-dependencies
+            - test-phpunit
+            - quality_code
           filters:
             branches:
               only:
@@ -341,3 +385,38 @@ workflows:
                 - /^hotfix\/.*/
                 - /^bugfix\/.*/
 
+      # Staging (release branches)
+      - hold-staging:
+          type: approval
+          requires:
+            - build-docker-image
+          filters:
+            branches:
+              only:
+                - /^release\/.*/
+      - deploy-ssh-staging:
+          requires:
+            - hold-staging
+          filters:
+            branches:
+              only:
+                - /^release\/.*/
+
+      # Production (main / master)
+      - hold-production:
+          type: approval
+          requires:
+            - build-docker-image
+          filters:
+            branches:
+              only:
+                - main
+                - master
+      - deploy-ssh-production:
+          requires:
+            - hold-production
+          filters:
+            branches:
+              only:
+                - main
+                - master
